@@ -7,8 +7,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Middleware pour logger les requêtes
+app.use((req, res, next) => {
+  console.log('Request:', req.method, req.path, req.body);
+  next();
+});
+
 app.post('/create-payment-intent', async (req, res) => {
   try {
+    console.log('Body received:', req.body);
+    if (!req.body || !req.body.amount) {
+      return res.status(400).json({ error: 'Missing amount in request body' });
+    }
     const { amount } = req.body;
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amount,
