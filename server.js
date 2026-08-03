@@ -17,7 +17,7 @@ const corsOptions = {
     'http://localhost:4242',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
-    'https://votre-domaine.com' // À remplacer par votre domaine
+    'https://votre-domaine.com'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -30,7 +30,7 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// ✅ Logger amélioré
+// ✅ Logger amélioré avec affichage du clientSecret
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`📥 [${timestamp}] ${req.method} ${req.path}`);
@@ -47,7 +47,7 @@ app.use((req, res, next) => {
 });
 
 // ============================================
-// 1️⃣ ROUTES DE TEST (UNIQUEMENT EN DÉVELOPPEMENT)
+// 1️⃣ ROUTES DE TEST
 // ============================================
 
 // ✅ Route de test simple
@@ -102,6 +102,7 @@ app.get('/test-payment', async (req, res) => {
     });
 
     console.log('✅ PaymentIntent de test créé:', paymentIntent.id);
+    console.log('🔑 ClientSecret:', paymentIntent.client_secret);
     
     res.json({
       mode: 'test',
@@ -111,7 +112,12 @@ app.get('/test-payment', async (req, res) => {
       amount: amount / 100,
       currency: 'EUR',
       status: paymentIntent.status,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      // ✅ Ajout d'instructions pour utiliser le clientSecret
+      instructions: {
+        nextStep: 'Utilisez ce clientSecret avec Stripe.js pour finaliser le paiement',
+        example: `stripe.confirmCardPayment('${paymentIntent.client_secret}', { payment_method: { card: cardElement } })`
+      }
     });
   } catch (error) {
     console.error('❌ Erreur test Stripe:', error.message);
@@ -124,12 +130,11 @@ app.get('/test-payment', async (req, res) => {
 });
 
 // ============================================
-// 2️⃣ ROUTE GET POUR LES TESTS (ALIAS)
+// 2️⃣ ROUTE GET POUR LES TESTS (AVEC CLIENT SECRET)
 // ============================================
 
-// ✅ Route GET pour les tests (UNIQUEMENT EN DÉVELOPPEMENT)
+// ✅ Route GET pour les tests avec clientSecret explicite
 app.get('/create-payment-intent', async (req, res) => {
-  // Bloquer en production
   if (!IS_DEVELOPMENT) {
     return res.status(403).json({
       error: 'Forbidden',
@@ -140,13 +145,11 @@ app.get('/create-payment-intent', async (req, res) => {
   console.log('🧪 GET /create-payment-intent (mode test)');
   
   try {
-    // Récupérer les paramètres de la query string
-    const amount = parseInt(req.query.amount) || 1000; // 10€ par défaut
+    const amount = parseInt(req.query.amount) || 1000;
     const currency = req.query.currency || 'eur';
     const paymentMethodId = req.query.paymentMethodId || 'pm_card_visa';
-    const confirm = req.query.confirm !== 'false'; // true par défaut
+    const confirm = req.query.confirm !== 'false';
 
-    // Validation
     if (amount < 50) {
       return res.status(400).json({
         error: 'amount too small',
@@ -156,7 +159,6 @@ app.get('/create-payment-intent', async (req, res) => {
 
     console.log(`💳 Création PaymentIntent de test: ${amount} ${currency}`);
     
-    // Créer le PaymentIntent
     const paymentIntentOptions = {
       amount: amount,
       currency: currency,
@@ -173,23 +175,52 @@ app.get('/create-payment-intent', async (req, res) => {
     const paymentIntent = await stripe.paymentIntents.create(paymentIntentOptions);
 
     console.log(`✅ PaymentIntent de test créé: ${paymentIntent.id}`);
+    console.log(`🔑 ClientSecret: ${paymentIntent.client_secret}`);
     console.log(`   Status: ${paymentIntent.status}`);
     console.log(`   Amount: ${paymentIntent.amount / 100} ${paymentIntent.currency}`);
     
+    // ✅ Réponse complète avec clientSecret bien visible
     res.json({
+      success: true,
       mode: 'test',
       message: '✅ PaymentIntent créé via GET (mode test)',
+      
+      // ⭐ CLIENT SECRET - Le plus important !
       clientSecret: paymentIntent.client_secret,
+      
+      // Informations du paiement
       paymentIntentId: paymentIntent.id,
       amount: paymentIntent.amount / 100,
       currency: paymentIntent.currency,
       status: paymentIntent.status,
       paymentMethod: paymentMethodId,
       confirm: confirm,
+      
+      // Horodatage
       timestamp: new Date().toISOString(),
+      
+      // ✅ Instructions d'utilisation
+     如何使用: {
+        step1: 'Copiez le clientSecret ci-dessus',
+        step2: 'Utilisez-le avec Stripe.js pour finaliser le paiement',
+        example: `const stripe = Stripe('pk_test_votre_cle');`,
+        code: `await stripe.confirmCardPayment('${paymentIntent.client_secret}', {
+  payment_method: { card: cardElement }
+});`,
+        documentation: 'https://stripe.com/docs/payments/accept-a-payment'
+      },
+      
+      // Infos de débogage
       debug: {
         endpoint: 'GET /create-payment-intent',
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        raw: {
+          id: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          amount: paymentIntent.amount,
+          currency: paymentIntent.currency,
+          status: paymentIntent.status
+        }
       }
     });
   } catch (error) {
@@ -208,30 +239,22 @@ app.get('/create-payment-intent', async (req, res) => {
 // 3️⃣ ROUTES DE PAIEMENT PRODUCTION
 // ============================================
 
-// ✅ Middleware de validation pour /create-payment-intent (POST uniquement)
+// ✅ Middleware de validation
 app.all('/create-payment-intent', (req, res, next) => {
-  // Autoriser OPTIONS pour CORS
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
   
-  // Accepter POST en production ET en développement
   if (req.method === 'POST') {
     return next();
   }
   
-  // Si c'est GET, on a déjà une route spécifique ci-dessus
-  // Donc on ne devrait pas arriver ici pour GET
   if (req.method === 'GET') {
-    // Cette route est déjà gérée plus haut
-    // Mais si on arrive ici, c'est qu'il y a un problème
-    console.warn('⚠️ GET /create-payment-intent déjà traité plus haut');
     return res.status(200).json({
       message: 'Utilisez la route GET /create-payment-intent?amount=2000 pour les tests'
     });
   }
   
-  // Rejeter toutes les autres méthodes
   console.error(`⚠️ Requête ${req.method} sur /create-payment-intent - REJETÉE`);
   res.status(405).json({
     error: 'Method Not Allowed',
@@ -239,11 +262,10 @@ app.all('/create-payment-intent', (req, res, next) => {
   });
 });
 
-// ✅ Endpoint principal de paiement (POST)
+// ✅ Endpoint principal de paiement (POST) - AVEC CLIENT SECRET
 app.post('/create-payment-intent', async (req, res) => {
   console.log('🔥 POST /create-payment-intent reçu');
   
-  // ⏱️ Timeout
   const timeout = setTimeout(() => {
     console.error('⏰ TIMEOUT: Stripe API ne répond pas');
     res.status(504).json({
@@ -260,10 +282,11 @@ app.post('/create-payment-intent', async (req, res) => {
       metadata = {},
       description,
       customerId,
-      testMode = false
+      testMode = false,
+      returnClientSecret = true // ✅ Option pour retourner ou non le clientSecret
     } = req.body;
 
-    // ✅ Validation de l'amount
+    // Validation
     if (!amount) {
       clearTimeout(timeout);
       console.error('❌ amount manquant');
@@ -325,23 +348,58 @@ app.post('/create-payment-intent', async (req, res) => {
 
     clearTimeout(timeout);
     console.log(`✅ PaymentIntent créé: ${paymentIntent.id}`);
+    console.log(`🔑 ClientSecret: ${paymentIntent.client_secret}`);
     console.log(`   Status: ${paymentIntent.status}`);
     console.log(`   Amount: ${paymentIntent.amount / 100} ${paymentIntent.currency}`);
     
+    // ✅ Construction de la réponse avec clientSecret
     const response = {
+      success: true,
+      
+      // ⭐ CLIENT SECRET - Le plus important pour le frontend
       clientSecret: paymentIntent.client_secret,
+      
+      // Informations du paiement
       paymentIntentId: paymentIntent.id,
       status: paymentIntent.status,
       amount: paymentIntent.amount / 100,
       currency: paymentIntent.currency,
       created: new Date(paymentIntent.created * 1000).toISOString(),
+      
+      // ✅ Instructions pour le frontend
+     如何使用: {
+        step1: 'Récupérez le clientSecret depuis cette réponse',
+        step2: 'Utilisez-le avec Stripe.js pour confirmer le paiement',
+        frontendExample: `
+const stripe = Stripe('pk_test_votre_cle_publique');
+const { error, paymentIntent } = await stripe.confirmCardPayment(
+  '${paymentIntent.client_secret}',
+  { payment_method: { card: cardElement } }
+);`,
+        documentation: 'https://stripe.com/docs/payments/accept-a-payment'
+      },
+      
+      // Infos de débogage (uniquement en développement)
       ...(IS_DEVELOPMENT && {
         debug: {
           testMode: testMode,
-          environment: process.env.NODE_ENV || 'development'
+          environment: process.env.NODE_ENV || 'development',
+          rawClientSecret: paymentIntent.client_secret,
+          paymentIntent: {
+            id: paymentIntent.id,
+            object: paymentIntent.object,
+            created: paymentIntent.created,
+            livemode: paymentIntent.livemode
+          }
         }
       })
     };
+
+    // ✅ Si returnClientSecret est false, masquer le clientSecret (option de sécurité)
+    if (returnClientSecret === false) {
+      delete response.clientSecret;
+      delete response.debug?.rawClientSecret;
+    }
 
     res.json(response);
 
@@ -356,19 +414,25 @@ app.post('/create-payment-intent', async (req, res) => {
     });
 
     const errorResponse = {
+      success: false,
       error: error.message,
       type: error.type,
       code: error.code
     };
 
+    // Messages d'erreur personnalisés
     if (error.code === 'card_declined') {
       errorResponse.message = 'La carte a été refusée';
+      errorResponse.solution = 'Essayez une autre carte ou vérifiez les informations';
     } else if (error.code === 'incorrect_cvc') {
       errorResponse.message = 'Code de sécurité incorrect';
+      errorResponse.solution = 'Vérifiez le CVC de votre carte';
     } else if (error.code === 'expired_card') {
       errorResponse.message = 'La carte est expirée';
+      errorResponse.solution = 'Utilisez une carte non expirée';
     } else if (error.code === 'insufficient_funds') {
       errorResponse.message = 'Fonds insuffisants';
+      errorResponse.solution = 'Vérifiez le solde de votre compte';
     }
 
     res.status(error.statusCode || 500).json(errorResponse);
@@ -379,7 +443,7 @@ app.post('/create-payment-intent', async (req, res) => {
 // 4️⃣ ROUTES DE GESTION DES PAIEMENTS
 // ============================================
 
-// ✅ Récupérer un PaymentIntent
+// ✅ Récupérer un PaymentIntent avec son clientSecret
 app.get('/payment-intent/:id', async (req, res) => {
   if (!IS_DEVELOPMENT) {
     return res.status(403).json({
@@ -392,16 +456,26 @@ app.get('/payment-intent/:id', async (req, res) => {
     const { id } = req.params;
     const paymentIntent = await stripe.paymentIntents.retrieve(id);
     
+    console.log(`🔍 Récupération du PaymentIntent: ${id}`);
+    console.log(`🔑 ClientSecret: ${paymentIntent.client_secret}`);
+    
     res.json({
+      success: true,
       id: paymentIntent.id,
+      clientSecret: paymentIntent.client_secret,
       status: paymentIntent.status,
       amount: paymentIntent.amount / 100,
       currency: paymentIntent.currency,
       created: new Date(paymentIntent.created * 1000).toISOString(),
-      metadata: paymentIntent.metadata
+      metadata: paymentIntent.metadata,
+      // ✅ Instructions pour utiliser le clientSecret
+     如何使用: {
+        example: `stripe.confirmCardPayment('${paymentIntent.client_secret}', { payment_method: { card: cardElement } })`
+      }
     });
   } catch (error) {
     res.status(404).json({
+      success: false,
       error: 'PaymentIntent not found',
       message: error.message
     });
@@ -439,19 +513,18 @@ app.listen(PORT, () => {
   console.log('1️⃣ Test rapide (GET - DEV UNIQUEMENT):');
   console.log(`   curl "http://localhost:${PORT}/create-payment-intent?amount=2000"`);
   console.log('');
-  console.log('2️⃣ Test avec paramètres (GET - DEV UNIQUEMENT):');
-  console.log(`   curl "http://localhost:${PORT}/create-payment-intent?amount=5000&currency=usd"`);
-  console.log('');
-  console.log('3️⃣ Vrai paiement (POST - TOUJOURS):');
+  console.log('2️⃣ Vrai paiement (POST - TOUJOURS):');
   console.log(`   curl -X POST http://localhost:${PORT}/create-payment-intent \\`);
   console.log(`     -H "Content-Type: application/json" \\`);
   console.log(`     -d '{"amount":2000, "currency":"eur"}'`);
   console.log('');
-  console.log('4️⃣ Paiement avec carte spécifique (POST):');
-  console.log(`   curl -X POST http://localhost:${PORT}/create-payment-intent \\`);
-  console.log(`     -H "Content-Type: application/json" \\`);
-  console.log(`     -d '{"amount":2000, "paymentMethodId":"pm_card_visa"}'`);
+  console.log('3️⃣ Récupérer un PaymentIntent existant:');
+  console.log(`   curl "http://localhost:${PORT}/payment-intent/pi_XXXX"`);
   console.log('');
+  console.log('='.repeat(70));
+  console.log('');
+  console.log('🔑 Le clientSecret est maintenant inclus dans TOUTES les réponses !');
+  console.log('📱 Utilisez-le avec Stripe.js pour finaliser les paiements.');
   console.log('='.repeat(70));
 });
 
