@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 4242;
 const IS_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 
-// ✅ Configuration CORS complète
+// ✅ Configuration CORS
 const corsOptions = {
   origin: [
     'http://localhost:3000',
@@ -30,7 +30,7 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// ✅ Logger amélioré avec affichage du clientSecret
+// ✅ Logger
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`📥 [${timestamp}] ${req.method} ${req.path}`);
@@ -50,7 +50,6 @@ app.use((req, res, next) => {
 // 1️⃣ ROUTES DE TEST
 // ============================================
 
-// ✅ Route de test simple
 app.get('/', (req, res) => {
   console.log('✅ GET / reçu');
   res.json({
@@ -67,7 +66,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// ✅ Endpoint de santé
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -113,7 +111,6 @@ app.get('/test-payment', async (req, res) => {
       currency: 'EUR',
       status: paymentIntent.status,
       timestamp: new Date().toISOString(),
-      // ✅ Ajout d'instructions pour utiliser le clientSecret
       instructions: {
         nextStep: 'Utilisez ce clientSecret avec Stripe.js pour finaliser le paiement',
         example: `stripe.confirmCardPayment('${paymentIntent.client_secret}', { payment_method: { card: cardElement } })`
@@ -130,10 +127,10 @@ app.get('/test-payment', async (req, res) => {
 });
 
 // ============================================
-// 2️⃣ ROUTE GET POUR LES TESTS (AVEC CLIENT SECRET)
+// 2️⃣ ROUTE GET POUR LES TESTS (AVEC CONFIRMATION AUTO)
 // ============================================
 
-// ✅ Route GET pour les tests avec clientSecret explicite
+// ✅ Route GET pour les tests
 app.get('/create-payment-intent', async (req, res) => {
   if (!IS_DEVELOPMENT) {
     return res.status(403).json({
@@ -179,16 +176,14 @@ app.get('/create-payment-intent', async (req, res) => {
     console.log(`   Status: ${paymentIntent.status}`);
     console.log(`   Amount: ${paymentIntent.amount / 100} ${paymentIntent.currency}`);
     
-    // ✅ Réponse complète avec clientSecret bien visible
     res.json({
       success: true,
       mode: 'test',
       message: '✅ PaymentIntent créé via GET (mode test)',
       
-      // ⭐ CLIENT SECRET - Le plus important !
+      // ⭐ CLIENT SECRET - Stocké automatiquement
       clientSecret: paymentIntent.client_secret,
       
-      // Informations du paiement
       paymentIntentId: paymentIntent.id,
       amount: paymentIntent.amount / 100,
       currency: paymentIntent.currency,
@@ -196,31 +191,24 @@ app.get('/create-payment-intent', async (req, res) => {
       paymentMethod: paymentMethodId,
       confirm: confirm,
       
-      // Horodatage
       timestamp: new Date().toISOString(),
       
-      // ✅ Instructions d'utilisation
+      // ✅ Instructions pour le frontend
      如何使用: {
-        step1: 'Copiez le clientSecret ci-dessus',
-        step2: 'Utilisez-le avec Stripe.js pour finaliser le paiement',
-        example: `const stripe = Stripe('pk_test_votre_cle');`,
-        code: `await stripe.confirmCardPayment('${paymentIntent.client_secret}', {
-  payment_method: { card: cardElement }
-});`,
+        step1: 'Le clientSecret est automatiquement géré par StripeProvider',
+        step2: 'Utilisez stripeProvider.confirmPayment() pour finaliser',
+        example: `
+// Dans votre Flutter app
+await stripeProvider.confirmPayment(
+  paymentMethodId: 'pm_card_visa',
+);
+// Le clientSecret est utilisé automatiquement !`,
         documentation: 'https://stripe.com/docs/payments/accept-a-payment'
       },
       
-      // Infos de débogage
       debug: {
         endpoint: 'GET /create-payment-intent',
-        environment: process.env.NODE_ENV || 'development',
-        raw: {
-          id: paymentIntent.id,
-          clientSecret: paymentIntent.client_secret,
-          amount: paymentIntent.amount,
-          currency: paymentIntent.currency,
-          status: paymentIntent.status
-        }
+        environment: process.env.NODE_ENV || 'development'
       }
     });
   } catch (error) {
@@ -262,7 +250,7 @@ app.all('/create-payment-intent', (req, res, next) => {
   });
 });
 
-// ✅ Endpoint principal de paiement (POST) - AVEC CLIENT SECRET
+// ✅ Endpoint principal de paiement (POST)
 app.post('/create-payment-intent', async (req, res) => {
   console.log('🔥 POST /create-payment-intent reçu');
   
@@ -282,11 +270,10 @@ app.post('/create-payment-intent', async (req, res) => {
       metadata = {},
       description,
       customerId,
-      testMode = false,
-      returnClientSecret = true // ✅ Option pour retourner ou non le clientSecret
+      testMode = false
     } = req.body;
 
-    // Validation
+    // ✅ Validation
     if (!amount) {
       clearTimeout(timeout);
       console.error('❌ amount manquant');
@@ -330,7 +317,9 @@ app.post('/create-payment-intent', async (req, res) => {
       }
     };
 
+    // ✅ Si paymentMethodId est fourni, confirmer automatiquement
     if (paymentMethodId) {
+      console.log(`💳 Confirmation automatique avec: ${paymentMethodId}`);
       paymentIntentOptions.payment_method = paymentMethodId;
       paymentIntentOptions.confirm = true;
     }
@@ -352,14 +341,13 @@ app.post('/create-payment-intent', async (req, res) => {
     console.log(`   Status: ${paymentIntent.status}`);
     console.log(`   Amount: ${paymentIntent.amount / 100} ${paymentIntent.currency}`);
     
-    // ✅ Construction de la réponse avec clientSecret
+    // ✅ Réponse avec clientSecret
     const response = {
       success: true,
       
-      // ⭐ CLIENT SECRET - Le plus important pour le frontend
+      // ⭐ CLIENT SECRET - Auto-géré par le provider
       clientSecret: paymentIntent.client_secret,
       
-      // Informations du paiement
       paymentIntentId: paymentIntent.id,
       status: paymentIntent.status,
       amount: paymentIntent.amount / 100,
@@ -368,38 +356,18 @@ app.post('/create-payment-intent', async (req, res) => {
       
       // ✅ Instructions pour le frontend
      如何使用: {
-        step1: 'Récupérez le clientSecret depuis cette réponse',
-        step2: 'Utilisez-le avec Stripe.js pour confirmer le paiement',
-        frontendExample: `
-const stripe = Stripe('pk_test_votre_cle_publique');
-const { error, paymentIntent } = await stripe.confirmCardPayment(
-  '${paymentIntent.client_secret}',
-  { payment_method: { card: cardElement } }
-);`,
-        documentation: 'https://stripe.com/docs/payments/accept-a-payment'
+        step1: 'Le clientSecret est automatiquement stocké dans StripeProvider',
+        step2: 'Confirmez le paiement avec StripeProvider.confirmPayment()',
+        note: 'Le clientSecret est utilisé automatiquement, pas besoin de le manipuler'
       },
       
-      // Infos de débogage (uniquement en développement)
       ...(IS_DEVELOPMENT && {
         debug: {
           testMode: testMode,
-          environment: process.env.NODE_ENV || 'development',
-          rawClientSecret: paymentIntent.client_secret,
-          paymentIntent: {
-            id: paymentIntent.id,
-            object: paymentIntent.object,
-            created: paymentIntent.created,
-            livemode: paymentIntent.livemode
-          }
+          environment: process.env.NODE_ENV || 'development'
         }
       })
     };
-
-    // ✅ Si returnClientSecret est false, masquer le clientSecret (option de sécurité)
-    if (returnClientSecret === false) {
-      delete response.clientSecret;
-      delete response.debug?.rawClientSecret;
-    }
 
     res.json(response);
 
@@ -420,7 +388,6 @@ const { error, paymentIntent } = await stripe.confirmCardPayment(
       code: error.code
     };
 
-    // Messages d'erreur personnalisés
     if (error.code === 'card_declined') {
       errorResponse.message = 'La carte a été refusée';
       errorResponse.solution = 'Essayez une autre carte ou vérifiez les informations';
@@ -440,10 +407,10 @@ const { error, paymentIntent } = await stripe.confirmCardPayment(
 });
 
 // ============================================
-// 4️⃣ ROUTES DE GESTION DES PAIEMENTS
+// 4️⃣ ROUTES DE GESTION
 // ============================================
 
-// ✅ Récupérer un PaymentIntent avec son clientSecret
+// ✅ Récupérer un PaymentIntent
 app.get('/payment-intent/:id', async (req, res) => {
   if (!IS_DEVELOPMENT) {
     return res.status(403).json({
@@ -467,11 +434,7 @@ app.get('/payment-intent/:id', async (req, res) => {
       amount: paymentIntent.amount / 100,
       currency: paymentIntent.currency,
       created: new Date(paymentIntent.created * 1000).toISOString(),
-      metadata: paymentIntent.metadata,
-      // ✅ Instructions pour utiliser le clientSecret
-     如何使用: {
-        example: `stripe.confirmCardPayment('${paymentIntent.client_secret}', { payment_method: { card: cardElement } })`
-      }
+      metadata: paymentIntent.metadata
     });
   } catch (error) {
     res.status(404).json({
@@ -483,7 +446,7 @@ app.get('/payment-intent/:id', async (req, res) => {
 });
 
 // ============================================
-// 5️⃣ DÉMARRAGE DU SERVEUR
+// 5️⃣ DÉMARRAGE
 // ============================================
 
 app.listen(PORT, () => {
@@ -518,13 +481,16 @@ app.listen(PORT, () => {
   console.log(`     -H "Content-Type: application/json" \\`);
   console.log(`     -d '{"amount":2000, "currency":"eur"}'`);
   console.log('');
-  console.log('3️⃣ Récupérer un PaymentIntent existant:');
-  console.log(`   curl "http://localhost:${PORT}/payment-intent/pi_XXXX"`);
+  console.log('3️⃣ Paiement avec confirmation automatique (POST):');
+  console.log(`   curl -X POST http://localhost:${PORT}/create-payment-intent \\`);
+  console.log(`     -H "Content-Type: application/json" \\`);
+  console.log(`     -d '{"amount":2000, "paymentMethodId":"pm_card_visa"}'`);
   console.log('');
   console.log('='.repeat(70));
   console.log('');
-  console.log('🔑 Le clientSecret est maintenant inclus dans TOUTES les réponses !');
-  console.log('📱 Utilisez-le avec Stripe.js pour finaliser les paiements.');
+  console.log('🔑 Le clientSecret est automatiquement géré par StripeProvider');
+  console.log('📱 Utilisez stripeProvider.confirmPayment() pour confirmer');
+  console.log('   Le clientSecret est utilisé automatiquement !');
   console.log('='.repeat(70));
 });
 
