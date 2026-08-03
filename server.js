@@ -5,24 +5,29 @@ const cors = require('cors');
 const app = express();
 const PORT = 4242;
 
-// ✅ CORS + JSON
-app.use(cors());
+// ✅ Middleware
+app.use(cors({ origin: true }));
 app.use(express.json());
 
-// ✅ Route de base pour tester
+// ✅ Route de test
 app.get('/', (req, res) => {
-  res.send('✅ Backend Stripe OK');
+  console.log('✅ Ping reçu !');
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // ✅ Endpoint principal
 app.post('/create-payment-intent', async (req, res) => {
+  console.log('📥 Requête reçue:', req.body);
+
   try {
     const { amount, paymentMethodId } = req.body;
 
     if (!amount) {
+      console.error('❌ amount manquant');
       return res.status(400).json({ error: 'amount is required' });
     }
 
+    console.log('🔥 Création du PaymentIntent...');
     const paymentIntent = await stripe.paymentIntents.create({
       amount: parseInt(amount),
       currency: 'eur',
@@ -31,18 +36,23 @@ app.post('/create-payment-intent', async (req, res) => {
       automatic_payment_methods: { enabled: true },
     });
 
+    console.log('✅ PaymentIntent créé:', paymentIntent.id);
     res.json({
       clientSecret: paymentIntent.client_secret,
       status: paymentIntent.status,
     });
 
   } catch (error) {
-    console.error('❌ Erreur:', error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Erreur Stripe:', error);
+    res.status(500).json({
+      error: error.message,
+      type: error.type,
+      code: error.code,
+    });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
-  console.log(`🔗 Test: http://localhost:${PORT}/`);
+  console.log(`🔗 Test: curl http://localhost:${PORT}/`);
 });
