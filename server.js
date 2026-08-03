@@ -22,7 +22,19 @@ app.get('/', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// ✅ Endpoint avec GESTION DES ERREURS COMPLÈTE
+// Blocage des requêtes non-POST sur /create-payment-intent
+app.all('/create-payment-intent', (req, res, next) => {
+  if (req.method === 'POST') {
+    return next(); // Continue vers le handler POST
+  }
+  console.error(`⚠️ Requête ${req.method} sur /create-payment-intent - REJETÉE`);
+  res.status(405).json({
+    error: 'Method Not Allowed',
+    message: 'Seules les requêtes POST sont acceptées'
+  });
+});
+
+// Endpoint principal pour créer un PaymentIntent
 app.post('/create-payment-intent', async (req, res) => {
   console.log('🔥 POST /create-payment-intent reçu');
 
