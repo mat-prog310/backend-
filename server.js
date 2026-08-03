@@ -1,46 +1,59 @@
 const express = require('express');
-const stripe = require('stripe')('sk_test_ticuleCléSecreteStripe'); // ✅ Remplace par TA clé secrète
+const stripe = require('stripe')('sk_test_51TzadmFFtKkgYApo2mqOUHq1ZmXLfI79u72gpi0DTuSjEerX69wup86NDbd5SxqDkA7ZCAErjBQ2Z7xH0l61MboC00Cop9j8p3');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 
 const app = express();
 const PORT = 4242;
 
-// Middleware
-app.use(cors({ origin: true })); // Autorise toutes les origines (à ajuster en prod)
-app.use(bodyParser.json());
+// ✅ Middleware optimisé
+app.use(cors({ origin: true }));
+app.use(express.json({ limit: '10mb' }));
 
-// ✅ Endpoint pour créer + confirmer un PaymentIntent avec PaymentMethod
+// ✅ Endpoint avec timeout et logs détaillés
 app.post('/create-payment-intent', async (req, res) => {
+  console.log('🔍 [DEBUT] Requête reçue à', new Date().toISOString());
+
+  // ⏱️ Timeout après 10 secondes
+  const timeout = setTimeout(() => {
+    console.log('⏰ Timeout atteint !');
+    res.status(408).json({ error: 'Request timeout' });
+  }, 10000);
+
   try {
+    console.log('📦 Body reçu:', JSON.stringify(req.body, null, 2));
+
     const { amount, paymentMethodId, userId, plan } = req.body;
 
-    if (!amount || !paymentMethodId) {
-      return res.status(400).json({
-        error: 'Missing required parameters: amount or paymentMethodId'
-      });
+    if (!amount) {
+      clearTimeout(timeout);
+      console.error('❌ amount manquant');
+      return res.status(400).json({ error: 'amount is required' });
     }
 
-    // 🔥 Créer et confirmer le PaymentIntent en une seule étape
+    if (!paymentMethodId) {
+      clearTimeout(timeout);
+      console.error('❌ paymentMethodId manquant');
+      return res.status(400).json({ error: 'paymentMethodId is required' });
+    }
+
+    console.log('🔥 Création du PaymentIntent...');
+    console.time('Stripe API');
+
+    // ✅ Créer le PaymentIntent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,              // Montant en centimes (ex: 5000 = 50.00€)
-      currency: 'eur',             // Devise
-      payment_method: paymentMethodId,  // 👈 ID du PaymentMethod reçu de Flutter
-      confirm: true,               // 👈 Confirme automatiquement !
-      automatic_payment_methods: {
-        enabled: true,
-        allow_redirects: 'never',
-      },
-      // 📝 Métadonnées pour ton système de tokens
-      metadata: {
-        user_id: userId || 'unknown',
-        plan: plan || 'unknown',
-      },
-      // 💳 Capture immédiate
-      capture_method: 'automatic',
+      amount: parseInt(amount),  // ⚠️ Convertir en nombre
+      currency: 'eur',
+      payment_method: paymentMethodId,
+      confirm: true,
+      automatic_payment_methods: { enabled: true },
+      metadata: { user_id: userId || 'unknown', plan: plan || 'unknown' },
     });
 
-    // ✅ Retourner le clientSecret au frontend
+    console.timeEnd('Stripe API');
+    console.log('✅ PaymentIntent créé:', paymentIntent.id, '| Status:', paymentIntent.status);
+
+    clearTimeout(timeout);
+
     res.json({
       clientSecret: paymentIntent.client_secret,
       status: paymentIntent.status,
@@ -48,7 +61,14 @@ app.post('/create-payment-intent', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur Stripe:', error);
+    clearTimeout(timeout);
+    console.error('❌ ERREUR COMPLÈTE:', {
+      message: error.message,
+      type: error.type,
+      code: error.code,
+      stack: error.stack,
+    });
+
     res.status(500).json({
       error: error.message,
       type: error.type,
@@ -57,39 +77,10 @@ app.post('/create-payment-intent', async (req, res) => {
   }
 });
 
-// 🏍️ Endpoint pour créer UNIQUEMENT le PaymentIntent (sans confirmation)
-app.post('/create-payment-intent-only', async (req, res) => {
-  try {
-    const { amount, userId, plan } = req.body;
-
-    if (!amount) {
-      return res.status(400).json({ error: 'Missing amount' });
-    }
-
-    // Créer le PaymentIntent SANS confirmation
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,
-      currency: 'eur',
-      // ❌ PAS de payment_method ici
-      // ❌ PAS de confirm: true ici
-      metadata: {
-        user_id: userId || 'unknown',
-        plan: plan || 'unknown',
-      },
-    });
-
-    res.json({
-      clientSecret: paymentIntent.client_secret,
-    });
-
-  } catch (error) {
-    console.error('❌ Erreur:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 🌐 Démarrer le serveur
+// 🌐 Démarrer avec vérification
 app.listen(PORT, () => {
-  console.log(`✅ Serveur Stripe démarré sur http://localhost:${PORT}`);
-  console.log(`🔗 Test endpoint: http://localhost:${PORT}/create-payment-intent`);
+  console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
+  console.log(`📡 Test: curl -X POST http://localhost:${PORT}/create-payment-intent \\
+    -H "Content-Type: application/json" \\
+    -d '{"amount":5000,"paymentMethodId":"pm_card_visa"}'`);
 });
