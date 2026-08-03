@@ -5,82 +5,51 @@ const cors = require('cors');
 const app = express();
 const PORT = 4242;
 
-// ✅ Middleware optimisé
-app.use(cors({ origin: true }));
-app.use(express.json({ limit: '10mb' }));
+// ✅ CORS plus permissif + logs
+app.use(cors());
+app.use(express.json());
 
-// ✅ Endpoint avec timeout et logs détaillés
+// ✅ Route de test
+app.get('/', (req, res) => {
+  console.log('✅ Ping reçu !');
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// ✅ Endpoint principal avec logs
 app.post('/create-payment-intent', async (req, res) => {
-  console.log('🔍 [DEBUT] Requête reçue à', new Date().toISOString());
-
-  // ⏱️ Timeout après 10 secondes
-  const timeout = setTimeout(() => {
-    console.log('⏰ Timeout atteint !');
-    res.status(408).json({ error: 'Request timeout' });
-  }, 10000);
+  console.log('📥 Requête reçue:', req.body);
 
   try {
-    console.log('📦 Body reçu:', JSON.stringify(req.body, null, 2));
-
     const { amount, paymentMethodId, userId, plan } = req.body;
 
     if (!amount) {
-      clearTimeout(timeout);
       console.error('❌ amount manquant');
       return res.status(400).json({ error: 'amount is required' });
     }
 
-    if (!paymentMethodId) {
-      clearTimeout(timeout);
-      console.error('❌ paymentMethodId manquant');
-      return res.status(400).json({ error: 'paymentMethodId is required' });
-    }
-
-    console.log('🔥 Création du PaymentIntent...');
-    console.time('Stripe API');
-
-    // ✅ Créer le PaymentIntent
+    console.log('🔥 Création PaymentIntent...');
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: parseInt(amount),  // ⚠️ Convertir en nombre
+      amount: parseInt(amount),
       currency: 'eur',
-      payment_method: paymentMethodId,
+      payment_method: paymentMethodId || 'pm_card_visa', // ID de test si manquant
       confirm: true,
       automatic_payment_methods: { enabled: true },
-      metadata: { user_id: userId || 'unknown', plan: plan || 'unknown' },
+      metadata: { user_id: userId || 'test', plan: plan || 'test' },
     });
 
-    console.timeEnd('Stripe API');
-    console.log('✅ PaymentIntent créé:', paymentIntent.id, '| Status:', paymentIntent.status);
-
-    clearTimeout(timeout);
-
+    console.log('✅ PaymentIntent créé:', paymentIntent.id);
     res.json({
       clientSecret: paymentIntent.client_secret,
       status: paymentIntent.status,
-      paymentIntentId: paymentIntent.id,
     });
 
   } catch (error) {
-    clearTimeout(timeout);
-    console.error('❌ ERREUR COMPLÈTE:', {
-      message: error.message,
-      type: error.type,
-      code: error.code,
-      stack: error.stack,
-    });
-
-    res.status(500).json({
-      error: error.message,
-      type: error.type,
-      code: error.code,
-    });
+    console.error('❌ ERREUR:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// 🌐 Démarrer avec vérification
 app.listen(PORT, () => {
-  console.log(`✅ Serveur démarré sur http://localhost:${PORT}`);
-  console.log(`📡 Test: curl -X POST http://localhost:${PORT}/create-payment-intent \\
-    -H "Content-Type: application/json" \\
-    -d '{"amount":5000,"paymentMethodId":"pm_card_visa"}'`);
+  console.log(`✅ Serveur sur http://localhost:${PORT}`);
+  console.log(`🌐 Test avec: http://localhost:${PORT}/`);
 });
