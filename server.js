@@ -1,37 +1,43 @@
-require('dotenv').config();
+// server.js (ou ton fichier backend)
 const express = require('express');
+const stripe = require('stripe')('sk_test_t methyleneTaCleSecrete');
 const cors = require('cors');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const app = express();
 
+const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Middleware pour logger les requêtes
-app.use((req, res, next) => {
-  console.log('Request:', req.method, req.path, req.body);
-  next();
-});
-
+// ✅ Créer un PaymentIntent avec confirmation automatique
 app.post('/create-payment-intent', async (req, res) => {
   try {
-    console.log('Body received:', req.body);
-    if (!req.body || !req.body.amount) {
-      return res.status(400).json({ error: 'Missing amount in request body' });
-    }
-    const { amount } = req.body;
+    const { amount, paymentMethodId } = req.body;
+
+    // Créer le PaymentIntent avec confirm=true
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,
+      amount: amount,  // En centimes (ex: 5000 = 50.00€)
       currency: 'eur',
-      payment_method_types: ['card'],
+      payment_method: paymentMethodId,  // 👈 Middle de paiement fourni
+      confirm: true,  // 👈 Confirme automatiquement !
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: 'never',
+      },
+      // Métadonnées optionnelles pour ton système de tokens
+      metadata: {
+        user_id: req.body.userId,
+        plan: req.body.plan,
+      },
     });
-    res.json({ clientSecret: paymentIntent.client_secret });
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      status: paymentIntent.status,
+    });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Erreur Stripe:', error);
+    res.status(400).json({ error: error.message });
   }
 });
 
-const PORT = process.env.PORT || 4242;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Stripe backend sur http://0.0.0.0:${PORT}`);
-});
+app.listen(4242, () => console.log('Serveur Stripe sur http://localhost:4242'));
